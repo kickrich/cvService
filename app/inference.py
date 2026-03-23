@@ -209,7 +209,9 @@ class ONNXYOLODetector:
         unique_gaps = set()
         
         bushes_positions = []
-        gaps_positions = []
+        
+        row_sequence = []
+        tracked_objects = {}
         
         start_time = time.time()
         
@@ -221,38 +223,48 @@ class ONNXYOLODetector:
             if frame_count % frame_interval == 0:
                 detections = self.detect_frame(frame, frame_count)
                 
+                detections.sort(key=lambda d: (d['bbox'][0] + d['bbox'][2]) / 2)
+                
                 for det in detections:
+                    x1, y1, x2, y2 = det['bbox']
+                    center_x = (x1 + x2) / 2
+                    center_y = (y1 + y2) / 2
+                    
                     if det['class_name'] == 'grape_bush':
                         unique_bushes.add(det['track_id'])
-                        x1, y1, x2, y2 = det['bbox']
                         
                         bushes_positions.append({
                             'track_id': det['track_id'],
                             'frame': frame_count,
-                            'x': (x1 + x2) / 2,
-                            'y': (y1 + y2) / 2,
-                            'x1': x1,
-                            'y1': y1,
-                            'x2': x2,
-                            'y2': y2,
+                            'x': center_x,
+                            'y': center_y,
                             'confidence': det['confidence']
                         })
+                        
+                        if det['track_id'] not in tracked_objects:
+                            tracked_objects[det['track_id']] = {
+                                'order': len(row_sequence) + 1,
+                                'type': 'bush'
+                            }
+                            row_sequence.append({
+                                'track_id': det['track_id'],
+                                'order': len(row_sequence) + 1,
+                                'type': 'bush'
+                            })
                         
                     elif det['class_name'] == 'gap':
                         unique_gaps.add(det['track_id'])
-                        x1, y1, x2, y2 = det['bbox']
                         
-                        gaps_positions.append({
-                            'track_id': det['track_id'],
-                            'frame': frame_count,
-                            'x': (x1 + x2) / 2,
-                            'y': (y1 + y2) / 2,
-                            'x1': x1,
-                            'y1': y1,
-                            'x2': x2,
-                            'y2': y2,
-                            'confidence': det['confidence']
-                        })
+                        if det['track_id'] not in tracked_objects:
+                            tracked_objects[det['track_id']] = {
+                                'order': len(row_sequence) + 1,
+                                'type': 'gap'
+                            }
+                            row_sequence.append({
+                                'track_id': det['track_id'],
+                                'order': len(row_sequence) + 1,
+                                'type': 'gap'
+                            })
                 
                 processed_frames += 1
             
@@ -260,6 +272,18 @@ class ONNXYOLODetector:
         
         cap.release()
         processing_time = time.time() - start_time
+        
+        display_sequence = []
+        for item in sorted(row_sequence, key=lambda x: x['order']):
+            display_sequence.append(item['type'])
+        
+        sequence_details = []
+        for item in sorted(row_sequence, key=lambda x: x['order']):
+            sequence_details.append({
+                'position': item['order'],
+                'type': item['type'],
+                'track_id': item['track_id']
+            })
         
         statistics = self.calculate_statistics(
             unique_bushes, 
@@ -283,8 +307,9 @@ class ONNXYOLODetector:
                 "unique_gaps": len(unique_gaps),
                 "total_tracks": len(unique_bushes) + len(unique_gaps)
             },
-            "bushes_positions": bushes_positions[:1000],
-            "gaps_positions": gaps_positions[:1000]
+            "row_sequence": display_sequence,
+            "sequence_details": sequence_details,
+            "row_length": len(row_sequence)
         }
     
     def calculate_statistics(self, unique_bushes, unique_gaps, bushes_positions, total_frames, fps):
@@ -343,7 +368,6 @@ class ONNXYOLODetector:
             return sum(distances) / len(distances)
         
         return 0.0
-
 
 _detector = None
 

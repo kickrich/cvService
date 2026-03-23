@@ -17,7 +17,7 @@ app = FastAPI(title="Vineyard CV Service")
 async def startup_event():
     try:
         get_detector()
-    except Exception as e:
+    except Exception:
         pass
 
 @app.get("/")
@@ -34,12 +34,12 @@ async def root():
 async def health():
     return {"status": "healthy"}
 
-@app.post("/process_video")
-async def process_video(
-    video_id: int = Form(...),
+@app.post("/process_video_shard")
+async def process_video_shard(
+    shard_id: int = Form(...),
     video_file: UploadFile = File(...),
     callback_url: Optional[str] = Form(None),
-    frame_interval: int = Form(5)
+    frame_interval: int = Form(4)
 ):
     temp_path = None
     
@@ -55,13 +55,13 @@ async def process_video(
             "bushes_count": results["statistics"]["bushes_count"],
             "gaps_count": results["statistics"]["gaps_count"],
             "bush_spacing_avg": results["statistics"]["bush_spacing_avg"],
-            "row_spacing": results["statistics"]["row_spacing"],
             "result_json": {
                 "video_info": results["video_info"],
                 "tracking_stats": results["tracking_stats"],
                 "details": results["statistics"]["details"],
-                "bushes_positions": results.get("bushes_positions", []),
-                "gaps_positions": results.get("gaps_positions", [])
+                "row_sequence": results.get("row_sequence", []),
+                "sequence_details": results.get("sequence_details", []),
+                "row_length": results.get("row_length", 0)
             }
         }
         
@@ -69,11 +69,7 @@ async def process_video(
             response = requests.post(callback_url, json=result)
             response.raise_for_status()
         
-        return {
-            "status": "success",
-            "video_id": video_id,
-            "result": result
-        }
+        return {"status": "success", "shard_id": shard_id}
         
     except Exception as e:
         if callback_url:
@@ -81,9 +77,7 @@ async def process_video(
                 requests.post(callback_url, json={"error": str(e)})
             except:
                 pass
-        
         raise HTTPException(status_code=500, detail=str(e))
-        
     finally:
         if temp_path and os.path.exists(temp_path):
             os.unlink(temp_path)
